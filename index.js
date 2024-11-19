@@ -2,14 +2,11 @@ const axios = require("axios");
 
 const BASE_URL = "https://5f2be0b4ffc88500167b85a0.mockapi.io/suppliers";
 
-// Fetch data from all suppliers in parallel
 const fetchSupplierData = async () => {
   const endpoints = ["acme", "patagonia", "paperflies"];
-
   const requests = endpoints.map((endpoint) =>
     axios.get(`${BASE_URL}/${endpoint}`)
   );
-
   const [acmeResponse, patagoniaResponse, paperfliesResponse] =
     await Promise.all(requests);
 
@@ -20,7 +17,6 @@ const fetchSupplierData = async () => {
   };
 };
 
-// Convert array data to objects based on hotel_id and destination_id
 const convertToDataObjects = (data, hotelIdKey, destinationIdKey) => {
   return data.reduce((acc, item) => {
     const key = `${item[hotelIdKey]}-${item[destinationIdKey]}`;
@@ -29,7 +25,6 @@ const convertToDataObjects = (data, hotelIdKey, destinationIdKey) => {
   }, {});
 };
 
-// Normalize data from different suppliers
 const normalizeData = (acmeData, patagoniaData, paperfliesData) => {
   return {
     hotel_id:
@@ -74,17 +69,14 @@ const normalizeData = (acmeData, patagoniaData, paperfliesData) => {
   };
 };
 
-// Merge data from different suppliers
-const mergeData = (acmeData, patagoniaData, paperfliesData) => {
+const formatData = (acmeData, patagoniaData, paperfliesData) => {
   const standardizedData = normalizeData(
     acmeData,
     patagoniaData,
     paperfliesData
   );
-
-  // Check if the data is valid (not empty)
   if (!standardizedData.hotel_id || !standardizedData.destination_id) {
-    return null; // Skip if critical fields are missing
+    return null;
   }
 
   return {
@@ -112,7 +104,24 @@ const mergeData = (acmeData, patagoniaData, paperfliesData) => {
   };
 };
 
-// Main function to get hotel details
+const normalizeAllHotels = (
+  allHotels,
+  acmeDataObj,
+  patagoniaDataObj,
+  paperfliesDataObj
+) => {
+  return allHotels
+    .map(({ hotel_id, destination_id }) => {
+      if (!hotel_id || !destination_id) return null;
+      const key = `${hotel_id}-${destination_id}`;
+      const acmeData = acmeDataObj[key] || {};
+      const patagoniaData = patagoniaDataObj[key] || {};
+      const paperfliesData = paperfliesDataObj[key] || {};
+      return normalizeData(acmeData, patagoniaData, paperfliesData);
+    })
+    .filter(Boolean);
+};
+
 const getHotelDetails = async (hotel_ids, destination_ids) => {
   try {
     const { acme, patagonia, paperflies } = await fetchSupplierData();
@@ -132,6 +141,14 @@ const getHotelDetails = async (hotel_ids, destination_ids) => {
     );
 
     const allHotels = [...acme, ...patagonia, ...paperflies];
+
+    const allHotelsNormalized = normalizeAllHotels(
+      allHotels,
+      acmeDataObj,
+      patagoniaDataObj,
+      paperfliesDataObj
+    );
+
     const uniqueHotels = new Set();
     const hotelDetailsArray = [];
 
@@ -145,53 +162,47 @@ const getHotelDetails = async (hotel_ids, destination_ids) => {
           )
         : [];
 
-    // Case: No hotel IDs and no destination IDs provided - return all hotels
-    if (!hotel_ids && !destination_ids) {
-      allHotels.forEach(({ hotel_id, destination_id }) => {
-        if (hotel_id && destination_id) {
-          const key = `${hotel_id}-${destination_id}`;
-          if (!uniqueHotels.has(key)) {
-            uniqueHotels.add(key);
-
-            const acmeData = acmeDataObj[key] || {};
-            const patagoniaData = patagoniaDataObj[key] || {};
-            const paperfliesData = paperfliesDataObj[key] || {};
-
-            const hotelMergedData = mergeData(
-              acmeData,
-              patagoniaData,
-              paperfliesData
-            );
-
-            if (hotelMergedData) {
-              hotelDetailsArray.push(hotelMergedData);
-            }
-          }
-        }
-      });
-    }
-    // Case: Both hotel IDs and destination IDs provided
-    else if (!!hotel_ids && !!destination_ids) {
-      combinationKeyPairs.forEach(({ hotel_id, destination_id }) => {
-        const key = `${hotel_id}-${destination_id}`;
+    const addHotelDataWithKey = (key) => {
+      if (!uniqueHotels.has(key)) {
+        uniqueHotels.add(key);
 
         const acmeData = acmeDataObj[key] || {};
         const patagoniaData = patagoniaDataObj[key] || {};
         const paperfliesData = paperfliesDataObj[key] || {};
 
-        const hotelMergedData = mergeData(
+        const hotelMergedData = formatData(
           acmeData,
           patagoniaData,
           paperfliesData
         );
 
-        if (hotelMergedData) {
-          hotelDetailsArray.push(hotelMergedData);
-        }
+        if (hotelMergedData) hotelDetailsArray.push(hotelMergedData);
+      }
+    };
+
+    if (!hotel_ids && !destination_ids) {
+      allHotelsNormalized.forEach(({ hotel_id, destination_id }) => {
+        if (hotel_id && destination_id)
+          addHotelDataWithKey(`${hotel_id}-${destination_id}`);
       });
-    } else {
-      // Case: Either hotel IDs or destination IDs not provided - return empty array
-      return [];
+    } else if (!!hotel_ids && !!destination_ids) {
+      combinationKeyPairs.forEach(({ hotel_id, destination_id }) =>
+        addHotelDataWithKey(`${hotel_id}-${destination_id}`)
+      );
+    } else if (!!hotel_ids && !destination_ids) {
+      hotel_ids.forEach((hotel_id) => {
+        allHotelsNormalized.forEach((hotel) => {
+          if (hotel.hotel_id === hotel_id)
+            addHotelDataWithKey(`${hotel_id}-${hotel.destination_id}`);
+        });
+      });
+    } else if (!!destination_ids && !hotel_ids) {
+      destination_ids.forEach((destination_id) => {
+        allHotelsNormalized.forEach((hotel) => {
+          if (hotel.destination_id === destination_id)
+            addHotelDataWithKey(`${hotel.hotel_id}-${destination_id}`);
+        });
+      });
     }
 
     return hotelDetailsArray;
@@ -204,9 +215,9 @@ const getHotelDetails = async (hotel_ids, destination_ids) => {
 // Parse command-line arguments
 const args = process.argv.slice(2);
 const hotel_ids =
-  args[0] === "none" || !args[0] ? undefined : args[0].split(",");
+  args[0] === "none" || !args[0] ? undefined : args[0].split(",").map(String);
 const destination_ids =
-  args[1] === "none" || !args[1] ? undefined : args[1].split(",");
+  args[1] === "none" || !args[1] ? undefined : args[1].split(",").map(Number);
 
 // Example usage with command-line arguments
 (async () => {
