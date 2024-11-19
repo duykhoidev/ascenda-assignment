@@ -7,6 +7,7 @@ const fetchSupplierData = async () => {
   const requests = endpoints.map((endpoint) =>
     axios.get(`${BASE_URL}/${endpoint}`)
   );
+
   const [acmeResponse, patagoniaResponse, paperfliesResponse] =
     await Promise.all(requests);
 
@@ -113,10 +114,13 @@ const normalizeAllHotels = (
   return allHotels
     .map(({ hotel_id, destination_id }) => {
       if (!hotel_id || !destination_id) return null;
+
       const key = `${hotel_id}-${destination_id}`;
+
       const acmeData = acmeDataObj[key] || {};
       const patagoniaData = patagoniaDataObj[key] || {};
       const paperfliesData = paperfliesDataObj[key] || {};
+
       return normalizeData(acmeData, patagoniaData, paperfliesData);
     })
     .filter(Boolean);
@@ -180,23 +184,30 @@ const getHotelDetails = async (hotel_ids, destination_ids) => {
       }
     };
 
+    // Case 1: No hotel IDs and no destination IDs provided - return all hotels
     if (!hotel_ids && !destination_ids) {
       allHotelsNormalized.forEach(({ hotel_id, destination_id }) => {
         if (hotel_id && destination_id)
           addHotelDataWithKey(`${hotel_id}-${destination_id}`);
       });
-    } else if (!!hotel_ids && !!destination_ids) {
+    }
+    // Case 2: Both hotel IDs and destination IDs provided
+    else if (!!hotel_ids && !!destination_ids) {
       combinationKeyPairs.forEach(({ hotel_id, destination_id }) =>
         addHotelDataWithKey(`${hotel_id}-${destination_id}`)
       );
-    } else if (!!hotel_ids && !destination_ids) {
+    }
+    // Case 3: hotel_ids are provided and no destination_ids
+    else if (!!hotel_ids && !destination_ids) {
       hotel_ids.forEach((hotel_id) => {
         allHotelsNormalized.forEach((hotel) => {
           if (hotel.hotel_id === hotel_id)
             addHotelDataWithKey(`${hotel_id}-${hotel.destination_id}`);
         });
       });
-    } else if (!!destination_ids && !hotel_ids) {
+    }
+    // Case 4: destination_ids are provided and no hotel_ids
+    else if (!!destination_ids && !hotel_ids) {
       destination_ids.forEach((destination_id) => {
         allHotelsNormalized.forEach((hotel) => {
           if (hotel.destination_id === destination_id)
